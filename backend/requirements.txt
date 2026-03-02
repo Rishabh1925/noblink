@@ -1,0 +1,31 @@
+# =============================================================================
+# The Global Staring Contest — Python Dependencies
+# =============================================================================
+
+# ── Web Framework ────────────────────────────────────────────────────────────
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+websockets==14.1
+python-multipart==0.0.20
+
+# ── Database (PostgreSQL via Supabase) ───────────────────────────────────────
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+
+# ── Redis (Real-time Leaderboard) ────────────────────────────────────────────
+redis[hiredis]==5.2.1
+
+# ── ML / Computer Vision ────────────────────────────────────────────────────
+numpy==2.2.1
+
+# ── Configuration ────────────────────────────────────────────────────────────
+pydantic==2.10.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# ── Testing ──────────────────────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.25.0
+httpx==0.28.1
+fakeredis[lua]==2.26.2
