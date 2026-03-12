@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import close_db, get_db, init_db
-from app.leaderboard import close_redis, get_redis, get_top_100, get_user_rank
+from app.leaderboard import get_top_100, get_user_rank
 from app.models import new_user_doc, serialize_doc
 from app.schemas import (
     GameSessionResponse,
@@ -60,19 +60,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("⚠️  MongoDB unavailable: %s — running in degraded mode", e)
 
-    try:
-        await get_redis()
-        logger.info("✅ Redis connected")
-    except Exception as e:
-        logger.warning("⚠️  Redis unavailable: %s — leaderboard will not work", e)
-
     yield
 
     # Shutdown
-    try:
-        await close_redis()
-    except Exception:
-        pass
     try:
         await close_db()
     except Exception:
@@ -107,9 +97,8 @@ app.add_middleware(
 
 @app.get("/api/health", response_model=HealthResponse, tags=["System"])
 async def health_check():
-    """Health check — verifies MongoDB and Redis connectivity."""
+    """Health check — verifies MongoDB connectivity."""
     db_status = "unknown"
-    redis_status = "unknown"
 
     # Check DB
     try:
@@ -119,17 +108,9 @@ async def health_check():
     except Exception as e:
         db_status = f"error: {e}"
 
-    # Check Redis
-    try:
-        r = await get_redis()
-        await r.ping()
-        redis_status = "connected"
-    except Exception as e:
-        redis_status = f"error: {e}"
+    overall = "ok" if db_status == "connected" else "degraded"
 
-    overall = "ok" if db_status == "connected" and redis_status == "connected" else "degraded"
-
-    return HealthResponse(status=overall, database=db_status, redis=redis_status)
+    return HealthResponse(status=overall, database=db_status)
 
 
 # ── Users ────────────────────────────────────────────────────────────────────

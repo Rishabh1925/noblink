@@ -1,63 +1,29 @@
 """
-Leaderboard — Redis Sorted Set operations for the real-time global leaderboard.
+Leaderboard — MongoDB-based operations for the real-time global leaderboard.
 
-Key format: ``leaderboard:daily:YYYY-MM-DD``
-Score = duration in milliseconds (higher is better).
-Member = ``user_id::username`` (composite key for easy display).
+Queries the ``game_sessions`` collection directly.  Only sessions with
+``status == "completed"`` are considered.  Scores are ranked by
+``duration_ms`` (higher is better).  Per-user best score for the day is
+used.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-import redis.asyncio as aioredis
-
-from app.config import settings
+from app.database import get_db
 from app.schemas import LeaderboardEntry, LeaderboardResponse
-
-# ── Redis Connection ─────────────────────────────────────────────────────────
-
-_redis_pool: aioredis.Redis | None = None
-
-
-async def get_redis() -> aioredis.Redis:
-    """Return the shared Redis connection (lazily initialised)."""
-    global _redis_pool
-    if _redis_pool is None:
-        _redis_pool = aioredis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-            max_connections=50,
-        )
-    return _redis_pool
-
-
-async def close_redis() -> None:
-    """Close the Redis connection pool."""
-    global _redis_pool
-    if _redis_pool is not None:
-        await _redis_pool.aclose()
-        _redis_pool = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _today_key() -> str:
-    """Return the Redis key for today's leaderboard."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    return f"leaderboard:daily:{today}"
-
-
-def _make_member(user_id: str, username: str) -> str:
-    """Encode user_id and username as a sorted-set member."""
-    return f"{user_id}::{username}"
-
-
-def _parse_member(member: str) -> tuple[str, str]:
-    """Decode a sorted-set member into (user_id, username)."""
-    parts = member.split("::", 1)
-    return parts[0], parts[1] if len(parts) > 1 else ""
+def _today_range() -> tuple[datetime, datetime]:
+    """Return (start, end) datetimes for today (UTC)."""
+    now = datetime.now(timezone.utc)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    return start, end
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -69,47 +35,71 @@ async def submit_score(
     duration_ms: int,
 ) -> None:
     """
-    Submit (or update) a score on today's leaderboard.
-
-    Uses ``ZADD`` with the ``GT`` flag so the score is only updated if the
-    new value is *greater* than the existing one (personal best for today).
-    Also sets a 48-hour TTL on the key to auto-clean old leaderboards.
+    No-op — scores are already persisted in ``game_sessions`` by the
+    WebSocket handler.  This function exists only to maintain the same
+    call-sites; it does nothing.
     """
-    r = await get_redis()
-    key = _today_key()
-    member = _make_member(user_id, username)
-
-    await r.zadd(key, {member: duration_ms}, gt=True)
-
-    # Ensure the key expires after 48 hours (refresh on each write)
-    await r.expire(key, 48 * 60 * 60)
+    pass
 
 
 async def get_top_100() -> LeaderboardResponse:
     """
     Retrieve the top 100 scores for today.
 
-    Returns a ``LeaderboardResponse`` with rank-ordered entries.
+    Uses a MongoDB aggregation pipeline to:
+    1. Filter today's completed sessions
+    2. Group by user → take max duration
+    3. Sort descending by duration
+    4. Limit to 100
     """
-    r = await get_redis()
-    key = _today_key()
+    db = get_db()
+    start, end = _today_range()
 
-    # ZREVRANGE returns highest-first, with scores
-    raw = await r.zrevrange(key, 0, 99, withscores=True)
+    pipeline = [
+        {
+            "$match": {
+                "status": "completed",
+                "started_at": {"$gte": start, "$lt": end},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$user_id",
+                "username": {"$first": "$username"},
+                "duration_ms": {"$max": "$duration_ms"},
+            }
+        },
+        {"$sort": {"duration_ms": -1}},
+        {"$limit": 100},
+    ]
+
+    results = await db.game_sessions.aggregate(pipeline).to_list(length=100)
 
     entries: list[LeaderboardEntry] = []
-    for rank, (member, score) in enumerate(raw, start=1):
-        user_id, username = _parse_member(member)
+    for rank, doc in enumerate(results, start=1):
         entries.append(
             LeaderboardEntry(
                 rank=rank,
-                user_id=user_id,
-                username=username,
-                duration_ms=int(score),
+                user_id=doc["_id"],
+                username=doc["username"],
+                duration_ms=doc["duration_ms"],
             )
         )
 
-    total = await r.zcard(key)
+    # Total unique players today
+    count_pipeline = [
+        {
+            "$match": {
+                "status": "completed",
+                "started_at": {"$gte": start, "$lt": end},
+            }
+        },
+        {"$group": {"_id": "$user_id"}},
+        {"$count": "total"},
+    ]
+    count_result = await db.game_sessions.aggregate(count_pipeline).to_list(length=1)
+    total = count_result[0]["total"] if count_result else 0
+
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     return LeaderboardResponse(
@@ -123,21 +113,56 @@ async def get_user_rank(user_id: str, username: str) -> int | None:
     """
     Get a user's rank on today's leaderboard (1-indexed).
 
-    Returns ``None`` if the user has no score today.
+    Returns ``None`` if the user has no completed session today.
     """
-    r = await get_redis()
-    key = _today_key()
-    member = _make_member(user_id, username)
+    db = get_db()
+    start, end = _today_range()
 
-    rank = await r.zrevrank(key, member)
-    return (rank + 1) if rank is not None else None
+    pipeline = [
+        {
+            "$match": {
+                "status": "completed",
+                "started_at": {"$gte": start, "$lt": end},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$user_id",
+                "duration_ms": {"$max": "$duration_ms"},
+            }
+        },
+        {"$sort": {"duration_ms": -1}},
+    ]
+
+    results = await db.game_sessions.aggregate(pipeline).to_list(length=None)
+
+    for rank, doc in enumerate(results, start=1):
+        if doc["_id"] == user_id:
+            return rank
+
+    return None
 
 
 async def get_user_score(user_id: str, username: str) -> int | None:
-    """Get a user's score on today's leaderboard."""
-    r = await get_redis()
-    key = _today_key()
-    member = _make_member(user_id, username)
+    """Get a user's best score on today's leaderboard."""
+    db = get_db()
+    start, end = _today_range()
 
-    score = await r.zscore(key, member)
-    return int(score) if score is not None else None
+    pipeline = [
+        {
+            "$match": {
+                "status": "completed",
+                "user_id": user_id,
+                "started_at": {"$gte": start, "$lt": end},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$user_id",
+                "duration_ms": {"$max": "$duration_ms"},
+            }
+        },
+    ]
+
+    results = await db.game_sessions.aggregate(pipeline).to_list(length=1)
+    return results[0]["duration_ms"] if results else None

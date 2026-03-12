@@ -32,7 +32,6 @@ from app.schemas import (
     WSGameOver,
     WSSessionReady,
 )
-from app import leaderboard
 
 logger = logging.getLogger(__name__)
 
@@ -330,14 +329,10 @@ async def _persist_session(
                 update_fields: dict = {"$inc": {"total_sessions": 1}}
                 if duration_ms > user.get("best_time_ms", 0):
                     update_fields["$set"] = {"best_time_ms": duration_ms}
-                await db.users.update_one(
-                    {"_id": ObjectId(user_id)},
-                    update_fields,
-                )
-
-        # Submit to Redis leaderboard (only for legit sessions)
-        if status == SessionStatus.COMPLETED and user_id and username:
-            await leaderboard.submit_score(user_id, username, duration_ms)
+                    await db.users.update_one(
+                        {"_id": ObjectId(user_id)},
+                        update_fields,
+                    )
 
     except Exception as e:
         logger.exception("Failed to persist session %s: %s", session_id, e)

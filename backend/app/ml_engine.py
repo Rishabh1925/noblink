@@ -86,6 +86,12 @@ def calculate_avg_ear(
 
 # ── Blink Detector (stateful, per-session) ───────────────────────────────────
 
+# Number of initial frames used to calibrate the per-session EAR baseline.
+CALIBRATION_FRAMES = 20
+
+# The dynamic threshold is set to baseline × this ratio.
+BLINK_RATIO = 0.72
+
 
 @dataclass
 class BlinkResult:
@@ -94,6 +100,7 @@ class BlinkResult:
     is_blink: bool
     ear_value: float
     consecutive_low_frames: int
+    is_calibrating: bool = False
 
 
 @dataclass
@@ -101,12 +108,16 @@ class BlinkDetector:
     """
     Stateful blink detector for a single game session.
 
-    Tracks consecutive frames where EAR falls below the threshold and fires
-    a blink event once ``ear_consec_frames`` consecutive low-EAR frames are
-    observed.
+    **Adaptive calibration** — the first ``CALIBRATION_FRAMES`` frames are
+    used to measure the player's resting (open-eye) EAR.  The blink
+    threshold is then set to ``median_baseline × BLINK_RATIO``, floored by
+    the global ``settings.ear_threshold`` so it never drops dangerously low.
+
+    After calibration, consecutive frames where EAR falls below the
+    dynamic threshold trigger a blink event.
     """
 
-    threshold: float = field(default_factory=lambda: settings.ear_threshold)
+    min_threshold: float = field(default_factory=lambda: settings.ear_threshold)
     consec_frames_required: int = field(
         default_factory=lambda: settings.ear_consec_frames,
     )
@@ -114,11 +125,41 @@ class BlinkDetector:
     # internal state
     _consecutive_low: int = field(default=0, init=False, repr=False)
     _blink_detected: bool = field(default=False, init=False, repr=False)
+    _calibration_samples: list = field(default_factory=list, init=False, repr=False)
+    _calibrated: bool = field(default=False, init=False, repr=False)
+    _dynamic_threshold: float = field(default=0.0, init=False, repr=False)
 
     def reset(self) -> None:
         """Reset internal counters (e.g. for a new session)."""
         self._consecutive_low = 0
         self._blink_detected = False
+        self._calibration_samples = []
+        self._calibrated = False
+        self._dynamic_threshold = 0.0
+
+    # ── Calibration ──────────────────────────────────────────────────────
+
+    def _add_calibration_sample(self, ear: float) -> None:
+        """Collect a sample during the calibration window."""
+        self._calibration_samples.append(ear)
+        if len(self._calibration_samples) >= CALIBRATION_FRAMES:
+            self._finalise_calibration()
+
+    def _finalise_calibration(self) -> None:
+        """Compute the dynamic threshold from collected samples."""
+        sorted_samples = sorted(self._calibration_samples)
+        n = len(sorted_samples)
+        if n % 2 == 0:
+            median = (sorted_samples[n // 2 - 1] + sorted_samples[n // 2]) / 2.0
+        else:
+            median = sorted_samples[n // 2]
+
+        # Dynamic threshold: ratio of the median baseline, but never below
+        # the absolute floor from config.
+        self._dynamic_threshold = max(median * BLINK_RATIO, self.min_threshold)
+        self._calibrated = True
+
+    # ── Public API ───────────────────────────────────────────────────────
 
     def process_frame(
         self,
@@ -127,6 +168,10 @@ class BlinkDetector:
     ) -> BlinkResult:
         """
         Feed one frame of eye landmarks.
+
+        During the calibration window the detector collects baseline EAR
+        samples and never fires a blink.  After calibration it uses the
+        adaptive threshold.
 
         Returns
         -------
@@ -137,7 +182,18 @@ class BlinkDetector:
         """
         avg_ear = calculate_avg_ear(left_eye, right_eye)
 
-        if avg_ear < self.threshold:
+        # ── Still calibrating ────────────────────────────────────────────
+        if not self._calibrated:
+            self._add_calibration_sample(avg_ear)
+            return BlinkResult(
+                is_blink=False,
+                ear_value=avg_ear,
+                consecutive_low_frames=0,
+                is_calibrating=True,
+            )
+
+        # ── Post-calibration: detect blinks ──────────────────────────────
+        if avg_ear < self._dynamic_threshold:
             self._consecutive_low += 1
         else:
             self._consecutive_low = 0

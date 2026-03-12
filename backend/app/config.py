@@ -23,19 +23,13 @@ class Settings(BaseSettings):
         description="MongoDB database name",
     )
 
-    # ── Redis ────────────────────────────────────────────────────────────────
-    redis_url: str = Field(
-        default="redis://localhost:6379",
-        description="Redis connection URL",
-    )
-
     # ── ML / Blink Detection ─────────────────────────────────────────────────
     ear_threshold: float = Field(
-        default=0.21,
+        default=0.18,
         description="EAR below this value indicates eyes closing",
     )
     ear_consec_frames: int = Field(
-        default=2,
+        default=3,
         description="Consecutive low-EAR frames required to confirm a blink",
     )
 
