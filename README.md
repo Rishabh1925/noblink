@@ -75,12 +75,12 @@ Results modal showing your time, global rank, and leaderboard placement.
   |                               | events|  | Detector    |  | (leader  |      |
   +-------------------------------+       |  | (adaptive   |  |  board)  |      |
                                           |  |  calibration|  +----------+      |
-                                          |  |  + smoothing)|                    |
+                                          |  | + smoothing)|                    |
                                           |  +-------------+  +----------+      |
-                                          |                    | MongoDB  |      |
-                                          |                    | (users,  |      |
-                                          |                    |  sessions|      |
-                                          |                    +----------+      |
+                                          |                   | MongoDB  |      |
+                                          |                   | (users,  |      |
+                                          |                   | sessions)|      |
+                                          |                   +----------+      |
                                           +-------------------------------------+
 ```
 
@@ -163,35 +163,35 @@ Where p1-p6 are the six landmarks around each eye. Key features:
 
 ```
 NoBlink.io/
-|-- frontend/                  # React + TypeScript (Vite)
+|-- frontend/                       # React + TypeScript (Vite)
 |   |-- src/
 |   |   |-- app/
-|   |   |   |-- screens/       # Landing, PreGame, Gameplay, GameOver
-|   |   |   |-- components/    # Leaderboard, AuthModal
-|   |   |   |-- api.ts         # API client + WebSocket helpers
-|   |   |   +-- routes.ts      # React Router config
+|   |   |   |-- screens/            # Landing, PreGame, Gameplay, GameOver
+|   |   |   |-- components/         # Leaderboard, AuthModal
+|   |   |   |-- api.ts              # API client + WebSocket helpers
+|   |   |   +-- routes.ts           # React Router config
 |   |   +-- styles/
 |   |-- package.json
 |   +-- vite.config.ts
 |
-|-- backend/                   # FastAPI + Python
+|-- backend/                        # FastAPI + Python
 |   |-- app/
-|   |   |-- main.py            # FastAPI app + routes
-|   |   |-- ml_engine.py       # EAR calculation + BlinkDetector
-|   |   |-- anti_cheat.py      # Frame validation + cheat detection
-|   |   |-- websocket_manager.py  # WS session state machine
-|   |   |-- leaderboard.py     # Redis sorted set operations
-|   |   |-- database.py        # Async MongoDB client
-|   |   |-- models.py          # MongoDB document schemas
-|   |   +-- schemas.py         # Pydantic request/response models
+|   |   |-- main.py                 # FastAPI app + routes
+|   |   |-- ml_engine.py            # EAR calculation + BlinkDetector
+|   |   |-- anti_cheat.py           # Frame validation + cheat detection
+|   |   |-- websocket_manager.py    # WS session state machine
+|   |   |-- leaderboard.py          # Redis sorted set operations
+|   |   |-- database.py             # Async MongoDB client
+|   |   |-- models.py               # MongoDB document schemas
+|   |   +-- schemas.py              # Pydantic request/response models
 |   |-- tests/
 |   |-- requirements.txt
-|   +-- README.md              # Detailed backend documentation
+|   +-- README.md                   # Detailed backend documentation
 |
-|-- docs/screenshots/          # Application screenshots
+|-- docs/screenshots/               # Application screenshots
 |-- CODE_OF_CONDUCT.md
 |-- CONTRIBUTING.md
-+-- LICENSE                    # MIT
++-- LICENSE                         # MIT
 ```
 
 ---

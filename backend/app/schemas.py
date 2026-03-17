@@ -146,10 +146,10 @@ class LeaderboardEntry(BaseModel):
     user_id: str
     username: str
     duration_ms: int
+    date: str
 
 
 class LeaderboardResponse(BaseModel):
-    date: str
     entries: list[LeaderboardEntry]
     total_players: int
 

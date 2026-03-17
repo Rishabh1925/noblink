@@ -4,7 +4,7 @@ The Global Staring Contest — FastAPI Application
 Endpoints:
     REST
         POST /api/users              – Register / get-or-create user
-        GET  /api/leaderboard        – Top 100 today
+        GET  /api/leaderboard        – All-time Top 100
         GET  /api/leaderboard/{uid}  – User's rank
         GET  /api/users/{uid}/stats  – User session history + best time
         GET  /api/health             – Health check
@@ -216,17 +216,15 @@ async def get_user_stats(user_id: str):
 @app.get("/api/leaderboard", response_model=LeaderboardResponse, tags=["Leaderboard"])
 async def leaderboard_top_100():
     """
-    Get today's Top 100 longest stares.
+    Get the all-time Top 100 longest stares.
 
-    The frontend should poll this endpoint periodically (e.g. every 5 seconds)
+    The frontend should poll this endpoint periodically (e.g. every 30 seconds)
     to display the live global leaderboard.
     """
     try:
         return await get_top_100()
     except Exception:
-        from datetime import datetime as _dt, timezone as _tz
         return LeaderboardResponse(
-            date=_dt.now(_tz.utc).strftime("%Y-%m-%d"),
             entries=[],
             total_players=0,
         )
@@ -234,7 +232,7 @@ async def leaderboard_top_100():
 
 @app.get("/api/leaderboard/{user_id}/rank", tags=["Leaderboard"])
 async def leaderboard_user_rank(user_id: str):
-    """Get a specific user's rank on today's leaderboard."""
+    """Get a specific user's all-time rank on the leaderboard."""
     db = get_db()
 
     if not ObjectId.is_valid(user_id):
@@ -254,7 +252,7 @@ async def leaderboard_user_rank(user_id: str):
         "user_id": user_id,
         "username": user["username"],
         "rank": rank,
-        "message": "Ranked" if rank else "No score today",
+        "message": "Ranked" if rank else "No score recorded",
     }
 
 

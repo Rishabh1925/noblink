@@ -1,29 +1,17 @@
 """
-Leaderboard — MongoDB-based operations for the real-time global leaderboard.
+Leaderboard — MongoDB-based operations for the all-time global leaderboard.
 
 Queries the ``game_sessions`` collection directly.  Only sessions with
 ``status == "completed"`` are considered.  Scores are ranked by
-``duration_ms`` (higher is better).  Per-user best score for the day is
-used.
+``duration_ms`` (higher is better).  Per-user all-time best score is used.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.schemas import LeaderboardEntry, LeaderboardResponse
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-def _today_range() -> tuple[datetime, datetime]:
-    """Return (start, end) datetimes for today (UTC)."""
-    now = datetime.now(timezone.utc)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days=1)
-    return start, end
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -44,29 +32,27 @@ async def submit_score(
 
 async def get_top_100() -> LeaderboardResponse:
     """
-    Retrieve the top 100 scores for today.
+    Retrieve the all-time top 100 scores.
 
     Uses a MongoDB aggregation pipeline to:
-    1. Filter today's completed sessions
-    2. Group by user → take max duration
-    3. Sort descending by duration
-    4. Limit to 100
+    1. Filter completed sessions
+    2. Sort by duration descending (so $first picks the best session's date)
+    3. Group by user → take max duration and the date of their best session
+    4. Sort descending by duration
+    5. Limit to 100
     """
     db = get_db()
-    start, end = _today_range()
 
     pipeline = [
-        {
-            "$match": {
-                "status": "completed",
-                "started_at": {"$gte": start, "$lt": end},
-            }
-        },
+        {"$match": {"status": "completed"}},
+        # Sort so that when we group, $first gives us the best session's date
+        {"$sort": {"duration_ms": -1}},
         {
             "$group": {
                 "_id": "$user_id",
                 "username": {"$first": "$username"},
                 "duration_ms": {"$max": "$duration_ms"},
+                "started_at": {"$first": "$started_at"},
             }
         },
         {"$sort": {"duration_ms": -1}},
@@ -77,33 +63,33 @@ async def get_top_100() -> LeaderboardResponse:
 
     entries: list[LeaderboardEntry] = []
     for rank, doc in enumerate(results, start=1):
+        # Format the date from the session's started_at
+        recorded_at = doc.get("started_at")
+        if isinstance(recorded_at, datetime):
+            date_str = recorded_at.strftime("%Y-%m-%d")
+        else:
+            date_str = "—"
+
         entries.append(
             LeaderboardEntry(
                 rank=rank,
                 user_id=doc["_id"],
                 username=doc["username"],
                 duration_ms=doc["duration_ms"],
+                date=date_str,
             )
         )
 
-    # Total unique players today
+    # Total unique players (all-time)
     count_pipeline = [
-        {
-            "$match": {
-                "status": "completed",
-                "started_at": {"$gte": start, "$lt": end},
-            }
-        },
+        {"$match": {"status": "completed"}},
         {"$group": {"_id": "$user_id"}},
         {"$count": "total"},
     ]
     count_result = await db.game_sessions.aggregate(count_pipeline).to_list(length=1)
     total = count_result[0]["total"] if count_result else 0
 
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
     return LeaderboardResponse(
-        date=today_str,
         entries=entries,
         total_players=total,
     )
@@ -111,20 +97,14 @@ async def get_top_100() -> LeaderboardResponse:
 
 async def get_user_rank(user_id: str, username: str) -> int | None:
     """
-    Get a user's rank on today's leaderboard (1-indexed).
+    Get a user's all-time rank on the leaderboard (1-indexed).
 
-    Returns ``None`` if the user has no completed session today.
+    Returns ``None`` if the user has no completed session.
     """
     db = get_db()
-    start, end = _today_range()
 
     pipeline = [
-        {
-            "$match": {
-                "status": "completed",
-                "started_at": {"$gte": start, "$lt": end},
-            }
-        },
+        {"$match": {"status": "completed"}},
         {
             "$group": {
                 "_id": "$user_id",
@@ -144,16 +124,14 @@ async def get_user_rank(user_id: str, username: str) -> int | None:
 
 
 async def get_user_score(user_id: str, username: str) -> int | None:
-    """Get a user's best score on today's leaderboard."""
+    """Get a user's all-time best score."""
     db = get_db()
-    start, end = _today_range()
 
     pipeline = [
         {
             "$match": {
                 "status": "completed",
                 "user_id": user_id,
-                "started_at": {"$gte": start, "$lt": end},
             }
         },
         {

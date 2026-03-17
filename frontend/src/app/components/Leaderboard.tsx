@@ -15,14 +15,12 @@ function formatDuration(ms: number): string {
 
 export function Leaderboard({ title, highlightUserId }: LeaderboardProps) {
   const [entries, setEntries] = useState<APIEntry[]>([]);
-  const [date, setDate] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
     try {
       const data = await getLeaderboard();
       setEntries(data.entries);
-      setDate(data.date);
     } catch (err) {
       console.error("Failed to fetch leaderboard:", err);
     } finally {
@@ -127,7 +125,7 @@ export function Leaderboard({ title, highlightUserId }: LeaderboardProps) {
                         className="text-xs opacity-70"
                         style={{ fontFamily: "'JetBrains Mono', monospace" }}
                       >
-                        {date}
+                        {entry.date}
                       </span>
                     </div>
                   </div>
@@ -172,7 +170,7 @@ export function Leaderboard({ title, highlightUserId }: LeaderboardProps) {
                   className="text-sm opacity-70 tabular-nums text-right w-24"
                   style={{ fontFamily: "'JetBrains Mono', monospace" }}
                 >
-                  {date}
+                  {entry.date}
                 </div>
               </div>
             </div>
@@ -186,7 +184,7 @@ export function Leaderboard({ title, highlightUserId }: LeaderboardProps) {
           className="text-xs opacity-50 uppercase tracking-wider"
           style={{ fontFamily: "'JetBrains Mono', monospace" }}
         >
-          Live Rankings • Updates every 30 seconds
+          All-Time Rankings - Updates every 30 seconds
         </p>
       </div>
     </div>

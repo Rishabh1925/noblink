@@ -37,10 +37,10 @@ export interface LeaderboardEntry {
     user_id: string;
     username: string;
     duration_ms: number;
+    date: string;
 }
 
 export interface LeaderboardResponse {
-    date: string;
     entries: LeaderboardEntry[];
     total_players: number;
 }
